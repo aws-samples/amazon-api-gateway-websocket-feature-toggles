@@ -1,0 +1,200 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: WebSocket-based feature toggle solution.
+Parameters:
+  ConnectionTableName:
+    Type: String
+    Default: "feature_toggle_connections"
+    Description: Feature toggle connections.
+    MinLength: 3
+    MaxLength: 50
+    AllowedPattern: ^[A-Za-z_]+$
+    ConstraintDescription: "Required. Can be characters and underscore only. No numbers or special characters allowed."
+  FeatureToggleTableName:
+    Type: String
+    Default: "feature_toggle_values"
+    Description: Feature toggle values.
+    MinLength: 3
+    MaxLength: 50
+    AllowedPattern: ^[A-Za-z_]+$
+    ConstraintDescription: "Required. Can be characters and underscore only. No numbers or special characters allowed."
+Resources:
+  FeatureFlagWebSocket:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: FeatureFlagWebSocket
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref FeatureFlagWebSocket
+      RouteKey: $connect
+      AuthorizationType: NONE
+      OperationName: ConnectRoute
+      Target: !Join
+        - "/"
+        - - "integrations"
+          - !Ref ConnectIntegration
+  ConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref FeatureFlagWebSocket
+      Description: Connect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: 
+        Fn::Sub:
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConnectionManagerFunction.Arn}/invocations
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref FeatureFlagWebSocket
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      OperationName: DisconnectRoute
+      Target: !Join
+        - "/"
+        - - "integrations"
+          - !Ref DisconnectIntegration
+  DisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref FeatureFlagWebSocket
+      Description: Disconnect Integration
+      IntegrationType: AWS_PROXY
+      IntegrationUri: 
+        Fn::Sub:
+            arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConnectionManagerFunction.Arn}/invocations
+  Deployment:
+    Type: AWS::ApiGatewayV2::Deployment
+    DependsOn:
+    - ConnectRoute
+    - DisconnectRoute
+    Properties:
+      ApiId: !Ref FeatureFlagWebSocket
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      StageName: Sandbox
+      Description: Sandbox Stage
+      DeploymentId: !Ref Deployment
+      ApiId: !Ref FeatureFlagWebSocket
+  ConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: "connectionId"
+        AttributeType: "S"
+      KeySchema:
+      - AttributeName: "connectionId"
+        KeyType: "HASH"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      SSESpecification:
+        SSEEnabled: True
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+      TableName: !Ref ConnectionTableName
+  FeatureToggleTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+      - AttributeName: "featureId"
+        AttributeType: "S"
+      KeySchema:
+      - AttributeName: "featureId"
+        KeyType: "HASH"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      SSESpecification:
+        SSEEnabled: True
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+      TableName: !Ref FeatureToggleTableName
+  ConnectionManagerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: connection-manager/
+      Handler: lambda-function.handler
+      MemorySize: 256
+      Runtime: python3.8
+      Environment:
+        Variables:
+          CONNECTION_TABLE_NAME: !Ref ConnectionTableName
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName: !Ref ConnectionTableName
+      - Statement:
+        - Effect: Allow
+          Action:
+          - "execute-api:ManageConnections"
+          Resource:
+          - !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FeatureFlagWebSocket}/*"
+  ConnectionManagerFunctionPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - FeatureFlagWebSocket
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ConnectionManagerFunction
+      Principal: apigateway.amazonaws.com
+  NewConnectionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: new-connection/
+      Handler: lambda-function.handler
+      MemorySize: 256
+      Runtime: python3.8
+      Environment:
+        Variables:
+          FEATURE_TOGGLE_TABLE_NAME: !Ref FeatureToggleTableName
+      Events:
+        Stream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ConnectionsTable.StreamArn
+            BatchSize: 10
+            StartingPosition: TRIM_HORIZON
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName: !Ref FeatureToggleTableName
+      - Statement:
+        - Effect: Allow
+          Action:
+          - "execute-api:ManageConnections"
+          Resource:
+          - !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FeatureFlagWebSocket}/*"
+  OnFeatureToggleMessageFunction:
+    Type: AWS::Serverless::Function
+    DependsOn:
+      - FeatureToggleTable
+    Properties:
+      CodeUri: feature-toggle-message/
+      Handler: lambda-function.handler
+      MemorySize: 256
+      Runtime: python3.8
+      Environment:
+        Variables:
+          CONNECTION_TABLE_NAME: !Ref ConnectionTableName
+      Events:
+        Stream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt FeatureToggleTable.StreamArn
+            BatchSize: 10
+            StartingPosition: TRIM_HORIZON
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName: !Ref ConnectionTableName
+      - Statement:
+        - Effect: Allow
+          Action:
+          - "execute-api:ManageConnections"
+          Resource:
+          - !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FeatureFlagWebSocket}/*"
+Outputs:
+  WebSocketURI:
+    Description: "The endpoint used to connect to the feature toggle service."
+    Value: !Join [ '', [ 'wss://', !Ref FeatureFlagWebSocket, '.execute-api.', !Ref 'AWS::Region', '.amazonaws.com/', !Ref 'Stage'] ]
