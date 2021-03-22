@@ -22,7 +22,7 @@ After you have test data in DynamoDB, you can use [wscat](https://github.com/web
 
 ```
 $ wscat -c wss://{YOUR-API-ID}.execute-api.{YOUR-REGION}.amazonaws.com/{STAGE}
-> { ... feature toggle info ...} 
+> { ... feature toggle info ... } 
 ```
 
 ## Security
