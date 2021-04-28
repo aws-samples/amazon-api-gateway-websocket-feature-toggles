@@ -8,7 +8,7 @@ For more information, refer to the [blog post](TBD) for this solution.
 
 You can deploy this solution using the [SAM template](template.yaml) included in this repository.  
 
-First, ensure you have the [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-install.html) installed. Then, deploy the SAM template using the following command from the application root.
+First, ensure you have the [SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-install.html) installed. Then, you can deploy the SAM template using the following command from the application root.  This command will take you through a guided SAM deployment.
 
 ```
 sam deploy --guided
