@@ -2,7 +2,7 @@
 
 This repository contains a SAM application that uses Amazon API Gateway WebSocket APIs, AWS Lambda functions, and AWS DynamoDB streams to build a feature toggle management solution.  This solution allows you to store feature toggles in DynamoDB and automatically push notifications to connected clients when feature toggle states are changed.
 
-For more information, refer to the [blog post](TBD) for this solution.
+For more information, refer to the [blog post](https://aws.amazon.com/blogs/devops/build-real-time-feature-toggles-with-amazon-dynamodb-streams-and-amazon-api-gateway-websocket-apis/) for this solution.
 
 ## Deploy
 
